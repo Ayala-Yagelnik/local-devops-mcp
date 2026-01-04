@@ -96,7 +96,7 @@ The Local DevOps MCP Server bridges the gap between complex Docker operations an
 
 ```bash
 # 1. Clone the repository
-git clone <repository-url>
+git clone https://github.com/Ayala-Yagelnik/local-devops-mcp
 cd local-devops-mcp
 
 # 2. Create virtual environment
@@ -107,7 +107,7 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
 # 4. Configure MCP client
-# Add to ~/.codeium/windsurf/mcp_config.json:
+# Add to ~/.codeium/windsurf/mcp_config.json or other mcp config of any agent:
 {
   "local-devops": {
     "command": "python",
