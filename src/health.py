@@ -186,8 +186,10 @@ class HealthMonitor:
                     container = client.containers.get(container_id)
                     container.restart()
                     time.sleep(health_info["interval"])
-                except:
+                except (DockerException, OSError) as e:
                     # Container might have been removed, stop monitoring
+                    import logging
+                    logging.getLogger(__name__).warning(f"Failed to restart container {container_id}: {e}")
                     break
             else:
                 time.sleep(health_info["interval"])
@@ -207,7 +209,9 @@ class HealthMonitor:
             req = urllib.request.Request(url)
             with urllib.request.urlopen(req, timeout=5) as response:
                 return response.status < 400
-        except:
+        except (urllib.error.URLError, urllib.error.HTTPError, OSError) as e:
+            import logging
+            logging.getLogger(__name__).warning(f"HTTP endpoint check failed for {url}: {e}")
             return False
 
 

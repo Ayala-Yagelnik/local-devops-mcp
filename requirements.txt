@@ -2,3 +2,4 @@ mcp==1.25.0
 docker>=7.0.0
 watchdog>=3.0.0
 pathlib2>=2.3.0
+aiofiles>=23.0.0
