@@ -11,7 +11,11 @@ import time
 from pathlib import Path
 from typing import Dict, Any, List, Callable, Optional
 
-from .docker_client import get_docker_client, get_container_by_name
+import docker.errors
+import watchdog.observers
+import watchdog.events
+
+from .docker_client import get_docker_client_sync, get_container_by_name_sync, get_container_by_name
 
 
 class FileWatcher:
@@ -97,8 +101,8 @@ class FileWatcher:
         Returns:
             Dict with rebuild result
         """
-        client = get_docker_client()
-        container = get_container_by_name(client, service_name)
+        client = get_docker_client_sync()
+        container = get_container_by_name_sync(client, service_name)
         
         if not container:
             return {"error": f"Container {service_name} not found"}
@@ -108,8 +112,7 @@ class FileWatcher:
         # Stop and remove container
         container.stop()
         container.remove()
-        
-        # Rebuild if local image
+                # Rebuild if local image
         if "/" in image or "." in image:
             project_path = self._extract_project_path(service_name)
             if project_path:
@@ -268,7 +271,7 @@ class FileWatcher:
             project_path: Project root path
             changed_file: Path to changed file
         """
-        client = get_docker_client()
+        client = get_docker_client_sync()
         project_name = Path(project_path).name
         
         # Look for containers related to this project
@@ -320,7 +323,7 @@ class FileWatcher:
         dockerfile_path = Path(project_path) / "Dockerfile"
         if dockerfile_path.exists():
             try:
-                client = get_docker_client()
+                client = get_docker_client_sync()
                 client.images.build(path=str(project_path), tag=image_name, rm=True)
                 return True
             except (docker.errors.BuildError, docker.errors.APIError, Exception) as e:
@@ -346,7 +349,7 @@ class FileWatcher:
         Returns:
             Dict with deployment result
         """
-        client = get_docker_client()
+        client = get_docker_client_sync()
         
         # Pull image if needed
         try:

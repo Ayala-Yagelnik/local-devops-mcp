@@ -6,11 +6,12 @@ and restore them later, enabling reproducible development and testing setups.
 """
 
 import time
+from pathlib import Path
 from typing import Dict, Any, List
 
 from docker.errors import ImageNotFound
 
-from .docker_client import get_docker_client, pull_image_if_needed
+from .docker_client import get_docker_client_sync, pull_image_if_needed_sync
 
 
 class SnapshotManager:
@@ -18,6 +19,10 @@ class SnapshotManager:
     
     def __init__(self):
         self._snapshots: Dict[str, Dict[str, Any]] = {}
+        # Create snapshots directory if it doesn't exist
+        snapshots_dir = Path.home() / ".devops-mcp" / "snapshots"
+        if not snapshots_dir.exists():
+            snapshots_dir.mkdir(parents=True, exist_ok=True)
     
     def snapshot_env(self, env_name: str) -> Dict[str, Any]:
         """
@@ -28,8 +33,13 @@ class SnapshotManager:
             
         Returns:
             Dict with snapshot creation result
+            
+        Raises:
+            ValueError: If snapshot name already exists
         """
-        client = get_docker_client()
+        if env_name in self._snapshots:
+            raise ValueError(f"Snapshot '{env_name}' already exists")
+        client = get_docker_client_sync()
         containers = client.containers.list()
         
         snapshot = {
@@ -54,9 +64,11 @@ class SnapshotManager:
         self._snapshots[env_name] = snapshot
         
         return {
-            "env_name": env_name,
-            "containers_count": len(snapshot["containers"]),
-            "status": "snapshot_created"
+            "snapshot_name": env_name,
+            "container_count": len(snapshot["containers"]),
+            "containers": snapshot["containers"],
+            "created_at": snapshot["created_at"],
+            "status": "created"
         }
     
     def restore_env(self, snapshot_name: str) -> Dict[str, Any]:
@@ -68,12 +80,15 @@ class SnapshotManager:
             
         Returns:
             Dict with restoration result
+            
+        Raises:
+            ValueError: If snapshot doesn't exist
         """
         if snapshot_name not in self._snapshots:
-            return {"error": f"Snapshot {snapshot_name} not found"}
+            raise ValueError(f"Snapshot '{snapshot_name}' not found")
         
         snapshot = self._snapshots[snapshot_name]
-        client = get_docker_client()
+        client = get_docker_client_sync()
         restored_containers = []
         failed_containers = []
         
@@ -82,7 +97,7 @@ class SnapshotManager:
                 # Pull image if needed
                 image = container_info["image"]
                 if image != "unknown":
-                    pull_image_if_needed(client, image)
+                    pull_image_if_needed_sync(client, image)
                 
                 # Parse ports
                 ports = {}
@@ -95,15 +110,19 @@ class SnapshotManager:
                 
                 # Parse environment variables
                 env_vars = {}
-                for env_var in container_info["env"]:
-                    if "=" in env_var:
-                        key, value = env_var.split("=", 1)
-                        env_vars[key] = value
+                env_list = container_info.get("env_vars", container_info.get("env", []))
+                if isinstance(env_list, dict):
+                    env_vars = env_list
+                else:
+                    for env_var in env_list:
+                        if "=" in env_var:
+                            key, value = env_var.split("=", 1)
+                            env_vars[key] = value
                 
                 # Parse volumes
                 volumes = {}
                 volume_bindings = {}
-                for mount in container_info["volumes"]:
+                for mount in container_info.get("volumes", []):
                     if mount.get("Type") == "bind":
                         source = mount.get("Source")
                         destination = mount.get("Destination")
@@ -111,23 +130,27 @@ class SnapshotManager:
                             volumes[destination] = {"bind": source, "mode": "rw"}
                 
                 # Run container with original configuration
-                container = client.containers.run(
-                    image=image,
-                    name=container_info["name"],
-                    detach=True,
-                    ports=port_bindings,
-                    environment=env_vars,
-                    labels=container_info["labels"],
-                    restart_policy=container_info["restart_policy"],
-                    network_mode=container_info["network_mode"],
-                    volumes=volumes,
-                )
-                
-                restored_containers.append({
-                    "original_id": container_info["id"],
-                    "new_id": container.short_id,
-                    "name": container_info["name"]
-                })
+                try:
+                    container = client.containers.run(
+                        image=image,
+                        name=container_info["name"],
+                        detach=True,
+                        ports=port_bindings,
+                        environment=env_vars,
+                        labels=container_info.get("labels", {}),
+                        restart_policy=container_info["restart_policy"],
+                        network_mode=container_info["network_mode"],
+                        volumes=volumes,
+                    )
+                    
+                    restored_containers.append({
+                        "original_id": container_info["id"],
+                        "new_id": container.short_id,
+                        "name": container_info["name"]
+                    })
+                except Exception as e:
+                    print(f"Error restoring container {container_info['name']}: {e}")
+                    continue
                 
             except Exception as e:
                 failed_containers.append({
@@ -137,29 +160,32 @@ class SnapshotManager:
                 })
         
         return {
-            "env_name": snapshot_name,
+            "snapshot_name": snapshot_name,
             "restored_containers": restored_containers,
             "failed_containers": failed_containers,
-            "status": "env_restored"
+            "container_count": len(restored_containers),
+            "status": "restored"
         }
     
-    def list_snapshots(self) -> Dict[str, List[Dict[str, Any]]]:
+    def list_snapshots(self) -> List[Dict[str, Any]]:
         """
         List all available snapshots.
         
         Returns:
-            Dict with list of snapshots
+            List of snapshots
         """
-        return {
-            "snapshots": [
-                {
-                    "name": name,
-                    "containers_count": len(snapshot["containers"]),
-                    "created_at": snapshot["created_at"]
-                }
-                for name, snapshot in self._snapshots.items()
-            ]
-        }
+        return [
+            {
+                "name": name,
+                "container_count": len(snapshot["containers"]),
+                "created_at": snapshot["created_at"],
+                "containers": [
+                    c["name"] if isinstance(c, dict) else c 
+                    for c in snapshot["containers"]
+                ]
+            }
+            for name, snapshot in self._snapshots.items()
+        ]
     
     def get_snapshot(self, name: str) -> Dict[str, Any]:
         """
@@ -190,12 +216,15 @@ class SnapshotManager:
             
         Returns:
             Dict with deletion result
+            
+        Raises:
+            ValueError: If snapshot doesn't exist
         """
-        if name in self._snapshots:
-            del self._snapshots[name]
-            return {"snapshot_name": name, "status": "deleted"}
-        else:
-            return {"error": f"Snapshot {name} not found"}
+        if name not in self._snapshots:
+            raise ValueError(f"Snapshot '{name}' not found")
+        
+        del self._snapshots[name]
+        return {"snapshot_name": name, "status": "deleted"}
     
     def compare_snapshots(self, name1: str, name2: str) -> Dict[str, Any]:
         """

@@ -49,7 +49,7 @@ class TestSnapshotManager:
             )
         ]
 
-        with patch('src.snapshots.get_docker_client') as mock_get_client:
+        with patch('src.snapshots.get_docker_client_sync') as mock_get_client:
             mock_client = Mock()
             mock_client.containers.list.return_value = mock_containers
             mock_get_client.return_value = mock_client
@@ -77,13 +77,18 @@ class TestSnapshotManager:
                 {
                     "name": "web-server",
                     "image": "nginx:latest", 
-                    "ports": {"80": "8080"},
-                    "env_vars": {"DEBUG": "true"}
+                    "ports": {"80/tcp": [{"HostPort": "8080"}]},
+                    "env_vars": {"DEBUG": "true"},
+                    "volumes": [],
+                    "labels": {},
+                    "restart_policy": {},
+                    "network_mode": "bridge",
+                    "id": "original123"
                 }
             ]
         }
 
-        with patch('src.snapshots.get_docker_client') as mock_get_client:
+        with patch('src.snapshots.get_docker_client_sync') as mock_get_client:
             mock_client = Mock()
             mock_container = Mock()
             mock_container.short_id = "new123"
@@ -95,7 +100,8 @@ class TestSnapshotManager:
             assert result["snapshot_name"] == "test-snapshot"
             assert result["container_count"] == 1
             assert result["status"] == "restored"
-            assert "web-server" in result["restored_containers"]
+            assert len(result["restored_containers"]) == 1
+            assert result["restored_containers"][0]["name"] == "web-server"
 
     def test_restore_env_nonexistent(self):
         """Test error when restoring non-existent snapshot."""

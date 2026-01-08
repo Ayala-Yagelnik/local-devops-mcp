@@ -16,7 +16,7 @@ sys.path.insert(0, str(src_path))
 from mcp.server.fastmcp import FastMCP
 
 # Import all modules
-from src.docker_client import get_docker_client, pull_image_if_needed, get_container_by_name
+from src.docker_client import get_docker_client_sync, pull_image_if_needed, get_container_by_name
 from src.dependencies import dependency_manager
 from src.templates import template_manager
 from src.health import health_monitor
@@ -64,7 +64,7 @@ def list_running_services():
         RuntimeError: If Docker daemon is not accessible
         DockerException: If container listing fails
     """
-    client = get_docker_client()
+    client = get_docker_client_sync()
     containers = client.containers.list()
 
     result = []
@@ -131,7 +131,7 @@ def deploy_service(
         # Local application
         deploy_service("./my-app", {"8000": "8000"})
     """
-    client = get_docker_client()
+    client = get_docker_client_sync()
 
     # Pull image if needed
     pull_image_if_needed(client, image)
@@ -179,7 +179,7 @@ def get_service_logs(container_id: str, tail: int = 50):
         docker.errors.NotFound: If container doesn't exist
         ValueError: If tail parameter is invalid
     """
-    client = get_docker_client()
+    client = get_docker_client_sync()
     container = client.containers.get(container_id)
 
     return container.logs(tail=tail).decode("utf-8", errors="replace")
@@ -212,7 +212,7 @@ def stop_service(container_id: str):
         docker.errors.NotFound: If container doesn't exist
         docker.errors.APIError: If stop/remove operation fails
     """
-    client = get_docker_client()
+    client = get_docker_client_sync()
     container = client.containers.get(container_id)
 
     container.stop()
@@ -375,7 +375,7 @@ def deploy_group(definitions: list):
         ValueError: If service definition is invalid
         docker.errors.ImageNotFound: If image cannot be pulled or built
     """
-    client = get_docker_client()
+    client = get_docker_client_sync()
     deployed_containers = {}
     
     # Sort services based on dependencies

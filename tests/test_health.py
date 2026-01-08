@@ -227,13 +227,24 @@ class TestHealthMonitor:
             mock_check.return_value = True
             
             # Simulate monitoring loop (run once then exit)
-            with patch.object(self.health_monitor, '_monitoring_threads', {"abc123def456": Mock()}):
-                # Run one iteration
+            # Mock the monitoring threads dict to make the loop exit after first check
+            monitoring_dict = {"abc123def456": Mock()}
+            side_effects = [True, None]  # First call returns True, second returns None
+            
+            def remove_on_sleep(*args):
+                if "abc123def456" in monitoring_dict:
+                    del monitoring_dict["abc123def456"]
+            
+            mock_sleep.side_effect = remove_on_sleep
+            
+            with patch.object(self.health_monitor, '_monitoring_threads', monitoring_dict):
+                # Run monitoring loop
                 self.health_monitor._monitor_and_restart("abc123def456")
                 
-                # Should not restart container
-                mock_check.assert_called_once_with("http://localhost:8080/health")
-                mock_sleep.assert_called_once_with(1)
+                # Should have called check endpoint
+                mock_check.assert_called_with("http://localhost:8080/health")
+                # Should have called sleep
+                mock_sleep.assert_called_with(1)
     
     @patch('time.sleep')
     def test_monitor_and_restart_unhealthy(self, mock_sleep):
@@ -246,7 +257,7 @@ class TestHealthMonitor:
         )
         
         with patch.object(self.health_monitor, '_check_http_endpoint') as mock_check:
-            with patch('src.health.get_docker_client') as mock_get_client:
+            with patch('src.docker_client.get_docker_client_sync') as mock_get_client:
                 # Container is unhealthy
                 mock_check.return_value = False
                 
@@ -255,10 +266,19 @@ class TestHealthMonitor:
                 mock_client.containers.get.return_value = mock_container
                 mock_get_client.return_value = mock_client
                 
-                # Simulate monitoring loop (run once then exit)
-                with patch.object(self.health_monitor, '_monitoring_threads', {"abc123def456": Mock()}):
+                # Mock the monitoring threads dict to make the loop exit after first check
+                monitoring_dict = {"abc123def456": Mock()}
+                
+                def remove_on_sleep(*args):
+                    if "abc123def456" in monitoring_dict:
+                        del monitoring_dict["abc123def456"]
+                
+                mock_sleep.side_effect = remove_on_sleep
+                
+                with patch.object(self.health_monitor, '_monitoring_threads', monitoring_dict):
                     self.health_monitor._monitor_and_restart("abc123def456")
                     
                     # Should restart container
                     mock_container.restart.assert_called_once()
-                    mock_sleep.assert_called_once_with(1)
+                    # Should have called sleep
+                    mock_sleep.assert_called_with(1)

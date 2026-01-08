@@ -32,7 +32,11 @@ class TestDependencyManager:
             {"type": "tcp", "host": "database", "port": 5432}
         )
         
-        with patch('src.dependencies.get_container_by_name') as mock_get_container:
+        with patch('src.docker_client.get_docker_client_sync') as mock_get_client, \
+             patch('src.dependencies.get_container_by_name') as mock_get_container:
+            
+            mock_client = Mock()
+            mock_get_client.return_value = mock_client
             mock_container = Mock()
             mock_get_container.return_value = mock_container
             
@@ -203,7 +207,7 @@ class TestDependencyManager:
     
     def test_check_log_pattern_sync(self):
         """Test synchronous log pattern check."""
-        with patch('src.dependencies.get_docker_client') as mock_get_client:
+        with patch('src.dependencies.get_docker_client_sync') as mock_get_client:
             mock_client = Mock()
             mock_container = Mock()
             mock_container.logs.return_value = b"Server is ready to accept connections"

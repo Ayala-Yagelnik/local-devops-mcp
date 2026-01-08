@@ -36,7 +36,7 @@ from server import (
 class TestServerTools:
     """Test MCP server tool functions."""
     
-    @patch('server.get_docker_client')
+    @patch('server.get_docker_client_sync')
     def test_list_running_services(self, mock_get_client):
         """Test listing running services."""
         mock_client = Mock()
@@ -62,7 +62,7 @@ class TestServerTools:
         assert result[0]["status"] == "running"
         assert "80/tcp" in result[0]["ports"]
     
-    @patch('server.get_docker_client')
+    @patch('server.get_docker_client_sync')
     @patch('server.pull_image_if_needed')
     def test_deploy_service(self, mock_pull, mock_get_client):
         """Test deploying a service."""
@@ -88,7 +88,7 @@ class TestServerTools:
             environment={"NGINX_PORT": "80"}
         )
     
-    @patch('server.get_docker_client')
+    @patch('server.get_docker_client_sync')
     def test_get_service_logs(self, mock_get_client):
         """Test getting service logs."""
         mock_client = Mock()
@@ -103,7 +103,7 @@ class TestServerTools:
         mock_client.containers.get.assert_called_once_with("abc123def456")
         mock_container.logs.assert_called_once_with(tail=50)
     
-    @patch('server.get_docker_client')
+    @patch('server.get_docker_client_sync')
     def test_stop_service(self, mock_get_client):
         """Test stopping a service."""
         mock_client = Mock()

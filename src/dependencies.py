@@ -14,7 +14,7 @@ from typing import Dict, Any, List, Optional
 import docker
 from docker.errors import DockerException
 
-from .docker_client import get_docker_client, get_container_by_name
+from .docker_client import get_docker_client_sync, get_container_by_name
 
 
 class DependencyManager:
@@ -66,7 +66,8 @@ class DependencyManager:
             return {"error": f"No dependencies defined for {service_name}"}
         
         dep_info = self._dependencies[service_name]
-        client = get_docker_client()
+        from src.docker_client import get_docker_client_sync
+        client = get_docker_client_sync()
         container = get_container_by_name(client, service_name)
         
         return {
@@ -227,13 +228,14 @@ class DependencyManager:
     
     async def _check_http_endpoint_async(self, url: str) -> bool:
         """Async version of check if HTTP endpoint responds."""
+        import urllib.request
+        import urllib.error
+        
         try:
             # Run HTTP request in thread pool to avoid blocking
             loop = asyncio.get_event_loop()
             
             def check_endpoint():
-                import urllib.request
-                import urllib.error
                 req = urllib.request.Request(url)
                 with urllib.request.urlopen(req, timeout=5) as response:
                     return response.status < 400
@@ -264,7 +266,7 @@ class DependencyManager:
             loop = asyncio.get_event_loop()
             
             async def check_logs():
-                client = await get_docker_client()
+                client = get_docker_client_sync()
                 container = await loop.run_in_executor(None, client.containers.get, container_id)
                 logs = await loop.run_in_executor(None, lambda: container.logs(tail=50).decode("utf-8", errors="replace"))
                 return bool(re.search(pattern, logs, re.IGNORECASE))
@@ -278,7 +280,7 @@ class DependencyManager:
     def _check_log_pattern(self, container_id: str, pattern: str) -> bool:
         """Check if log pattern appears in container logs."""
         try:
-            client = get_docker_client()
+            client = get_docker_client_sync()
             container = client.containers.get(container_id)
             logs = container.logs(tail=50).decode("utf-8", errors="replace")
             return bool(re.search(pattern, logs, re.IGNORECASE))

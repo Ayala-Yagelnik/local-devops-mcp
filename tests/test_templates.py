@@ -144,7 +144,7 @@ class TestTemplateManager:
         with pytest.raises(ValueError, match="Template 'nonexistent' not found"):
             self.template_manager.delete_template("nonexistent")
 
-    @patch('src.templates.get_docker_client')
+    @patch('src.templates.get_docker_client_sync')
     def test_run_from_template_success(self, mock_get_client):
         """Test successful deployment from template."""
         # Create template
@@ -179,7 +179,7 @@ class TestTemplateManager:
             {"NGINX_PORT": "80"}
         )
 
-        with patch('src.templates.get_docker_client') as mock_get_client:
+        with patch('src.templates.get_docker_client_sync') as mock_get_client:
             mock_client = Mock()
             mock_container = Mock()
             mock_container.short_id = "def456"

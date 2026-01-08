@@ -9,7 +9,8 @@ import threading
 import time
 from typing import Dict, Any, List
 
-from .docker_client import get_docker_client
+from docker.errors import DockerException
+from .docker_client import get_docker_client, get_docker_client_sync
 
 
 class HealthMonitor:
@@ -70,6 +71,9 @@ class HealthMonitor:
         is_healthy = self._check_http_endpoint(health_info["endpoint"])
         health_info["last_check"] = time.time()
         health_info["status"] = "healthy" if is_healthy else "unhealthy"
+        
+        # Ensure container_id is included in the response
+        health_info["container_id"] = container_id
         
         return health_info
     
@@ -182,7 +186,8 @@ class HealthMonitor:
             
             if not is_healthy:
                 try:
-                    client = get_docker_client()
+                    from src.docker_client import get_docker_client_sync
+                    client = get_docker_client_sync()
                     container = client.containers.get(container_id)
                     container.restart()
                     time.sleep(health_info["interval"])
