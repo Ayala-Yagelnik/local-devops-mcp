@@ -72,8 +72,9 @@ class FileWatcher:
             try:
                 observer.stop()
                 observer.join(timeout=5)
-            except:
-                pass
+            except Exception as e:
+                # Log the error but don't fail - cleanup should continue
+                print(f"Warning: Failed to stop observer for {project_path}: {e}")
             finally:
                 del self._watchers[project_path]
                 if project_path in self._observer_threads:
@@ -247,8 +248,9 @@ class FileWatcher:
                         if current_mtime != mtime:
                             self.callback(file_path)
                         current_mtimes[file_path] = current_mtime
-                    except:
-                        pass
+                    except (OSError, PermissionError) as e:
+                        # Skip files that can't be accessed (common with temporary files)
+                        continue
                 
                 # Check for new files
                 self._scan_files()
@@ -321,7 +323,9 @@ class FileWatcher:
                 client = get_docker_client()
                 client.images.build(path=str(project_path), tag=image_name, rm=True)
                 return True
-            except:
+            except (docker.errors.BuildError, docker.errors.APIError, Exception) as e:
+                # Log specific build errors for debugging
+                print(f"Docker build failed for {image_name}: {e}")
                 return False
         return False
     

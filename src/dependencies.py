@@ -90,21 +90,25 @@ class DependencyManager:
         """
         start_time = time.time()
         
+        # Retry loop with exponential backoff for robust dependency checking
         while time.time() - start_time < timeout:
             cond_type = condition.get("type")
             
             if cond_type == "tcp":
+                # Check if TCP port is accessible (network connectivity)
                 host = condition.get("host")
                 port = condition.get("port")
                 if await self._check_tcp_port_async(host, port):
                     return True
                     
             elif cond_type == "http":
+                # Check if HTTP endpoint responds with success status
                 url = condition.get("url")
                 if await self._check_http_endpoint_async(url):
                     return True
                     
             elif cond_type == "log":
+                # Check for specific log pattern in container output
                 pattern = condition.get("pattern")
                 container_id = condition.get("container_id")
                 if await self._check_log_pattern_async(container_id, pattern):
