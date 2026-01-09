@@ -10,7 +10,7 @@ import time
 from typing import Dict, Any, List
 
 from docker.errors import DockerException
-from .docker_client import get_docker_client, get_docker_client_sync
+from docker_client import get_docker_client, get_docker_client_sync
 
 
 class HealthMonitor:
@@ -68,7 +68,15 @@ class HealthMonitor:
         health_info = self._health_checks[container_id]
         
         # Perform health check
-        is_healthy = self._check_http_endpoint(health_info["endpoint"])
+        endpoint = health_info["endpoint"]
+        if endpoint.startswith("tcp://"):
+            is_healthy = self._check_tcp_endpoint(endpoint)
+        elif endpoint.startswith("http://") or endpoint.startswith("https://"):
+            is_healthy = self._check_http_endpoint(endpoint)
+        else:
+            # Default to TCP for unknown protocols
+            is_healthy = self._check_tcp_endpoint(f"tcp://{endpoint}")
+        
         health_info["last_check"] = time.time()
         health_info["status"] = "healthy" if is_healthy else "unhealthy"
         
@@ -182,7 +190,20 @@ class HealthMonitor:
         """
         while container_id in self._health_checks and container_id in self._monitoring_threads:
             health_info = self._health_checks[container_id]
-            is_healthy = self._check_http_endpoint(health_info["endpoint"])
+            endpoint = health_info["endpoint"]
+            
+            # Check endpoint based on protocol
+            if endpoint.startswith("tcp://"):
+                is_healthy = self._check_tcp_endpoint(endpoint)
+            elif endpoint.startswith("http://") or endpoint.startswith("https://"):
+                is_healthy = self._check_http_endpoint(endpoint)
+            else:
+                # Default to TCP for unknown protocols
+                is_healthy = self._check_tcp_endpoint(f"tcp://{endpoint}")
+            
+            # Update health status
+            health_info["status"] = "healthy" if is_healthy else "unhealthy"
+            health_info["last_check"] = time.time()
             
             if not is_healthy:
                 try:
@@ -218,6 +239,77 @@ class HealthMonitor:
             import logging
             logging.getLogger(__name__).warning(f"HTTP endpoint check failed for {url}: {e}")
             return False
+    
+    def _check_tcp_endpoint(self, endpoint: str) -> bool:
+        """
+        Check if TCP endpoint is reachable.
+        
+        Args:
+            endpoint: TCP endpoint in format "tcp://host:port"
+            
+        Returns:
+            bool: True if endpoint is reachable
+        """
+        try:
+            # Parse tcp://host:port format
+            if endpoint.startswith("tcp://"):
+                endpoint = endpoint[6:]  # Remove "tcp://"
+            
+            host, port = endpoint.split(":")
+            port = int(port)
+            
+            import socket
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(5)
+            result = sock.connect_ex((host, port))
+            sock.close()
+            
+            return result == 0
+        except (ValueError, OSError) as e:
+            import logging
+            logging.getLogger(__name__).warning(f"TCP endpoint check failed for {endpoint}: {e}")
+            return False
+
+
+def detect_health_check_type(image_name: str, port: int) -> str:
+    """
+    Detect appropriate health check type based on image and port.
+    
+    Args:
+        image_name: Docker image name (e.g., "postgres:15", "nginx:latest")
+        port: Container port number
+        
+    Returns:
+        str: Health check endpoint URL
+    """
+    image_lower = image_name.lower()
+    
+    # Database services - use TCP
+    if any(db in image_lower for db in ['postgres', 'mysql', 'mongodb', 'mariadb']):
+        return f"tcp://localhost:{port}"
+    
+    # Cache services - use TCP  
+    if any(cache in image_lower for cache in ['redis', 'memcached']):
+        return f"tcp://localhost:{port}"
+    
+    # Message queues - use TCP
+    if any(queue in image_lower for queue in ['rabbitmq', 'kafka', 'nats']):
+        return f"tcp://localhost:{port}"
+    
+    # Web servers - try HTTP first, fallback to TCP
+    if any(web in image_lower for web in ['nginx', 'apache', 'httpd', 'caddy']):
+        return f"http://localhost:{port}"
+    
+    # Application servers - try HTTP with health endpoint
+    if any(app in image_lower for app in ['api', 'app', 'server', 'service']):
+        return f"http://localhost:{port}/health"
+    
+    # Frontend frameworks - use HTTP
+    if any(frontend in image_lower for frontend in ['react', 'vue', 'angular', 'next']):
+        return f"http://localhost:{port}"
+    
+    # Default to TCP for unknown services
+    return f"tcp://localhost:{port}"
 
 
 # Global health monitor instance

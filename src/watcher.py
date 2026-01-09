@@ -15,7 +15,7 @@ import docker.errors
 import watchdog.observers
 import watchdog.events
 
-from .docker_client import get_docker_client_sync, get_container_by_name_sync, get_container_by_name
+from docker_client import get_docker_client_sync, get_container_by_name_sync, get_container_by_name
 
 
 class FileWatcher:

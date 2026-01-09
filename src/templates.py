@@ -8,7 +8,8 @@ with optional overrides for consistent configuration management.
 import time
 from typing import Dict, Any, List, Optional
 
-from .docker_client import get_docker_client_sync, pull_image_if_needed_sync
+from docker_client import get_docker_client_sync, pull_image_if_needed_sync
+from health import detect_health_check_type
 
 
 class TemplateManager:
@@ -51,6 +52,16 @@ class TemplateManager:
         
         if name in self._templates:
             raise ValueError(f"Template '{name}' already exists")
+        
+        # Auto-detect health check if not provided
+        if health_check is None:
+            # Get the first container port for health check detection
+            container_port = list(ports.keys())[0]
+            health_endpoint = detect_health_check_type(image, int(container_port))
+            health_check = {
+                "endpoint": health_endpoint,
+                "interval": 30
+            }
         
         self._templates[name] = {
             "image": image,
@@ -199,6 +210,38 @@ class TemplateManager:
             template["health_check"] = health_check
         
         return {"template_name": name, "status": "updated"}
+    
+    def create_smart_template(
+        self,
+        name: str,
+        image: str,
+        ports: Dict[str, str],
+        env_vars: Optional[Dict[str, str]] = None,
+        auto_health_check: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Create a template with automatic health check detection.
+        
+        Args:
+            name: Template name
+            image: Docker image name
+            ports: Port mapping (container: host)
+            env_vars: Environment variables (optional)
+            auto_health_check: Whether to auto-detect health check (default: True)
+            
+        Returns:
+            Dict with template creation result
+        """
+        health_check = None
+        if auto_health_check:
+            container_port = list(ports.keys())[0]
+            health_endpoint = detect_health_check_type(image, int(container_port))
+            health_check = {
+                "endpoint": health_endpoint,
+                "interval": 30
+            }
+        
+        return self.create_template(name, image, ports, env_vars, health_check)
     
     def _deploy_service(
         self,

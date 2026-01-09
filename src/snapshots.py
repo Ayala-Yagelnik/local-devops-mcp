@@ -11,7 +11,7 @@ from typing import Dict, Any, List
 
 from docker.errors import ImageNotFound
 
-from .docker_client import get_docker_client_sync, pull_image_if_needed_sync
+from docker_client import get_docker_client_sync, pull_image_if_needed_sync
 
 
 class SnapshotManager:
