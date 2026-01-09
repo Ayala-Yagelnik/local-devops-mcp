@@ -39,11 +39,18 @@ class DependencyManager:
         Returns:
             Dict with dependency definition result
         """
-        self._dependencies[service_name] = {
-            "depends_on": depends_on,
-            "wait_condition": wait_condition,
-            "created_at": time.time()
-        }
+        # Support multiple dependencies by storing them as a list
+        if service_name not in self._dependencies:
+            self._dependencies[service_name] = {
+                "depends_on": [],
+                "wait_conditions": [],
+                "created_at": time.time()
+            }
+        
+        # Add dependency if not already present
+        if depends_on not in self._dependencies[service_name]["depends_on"]:
+            self._dependencies[service_name]["depends_on"].append(depends_on)
+            self._dependencies[service_name]["wait_conditions"].append(wait_condition)
         
         return {
             "service": service_name,
@@ -66,14 +73,14 @@ class DependencyManager:
             return {"error": f"No dependencies defined for {service_name}"}
         
         dep_info = self._dependencies[service_name]
-        from src.docker_client import get_docker_client_sync
+        from .docker_client import get_docker_client_sync
         client = get_docker_client_sync()
         container = get_container_by_name(client, service_name)
         
         return {
             "service": service_name,
             "depends_on": dep_info["depends_on"],
-            "condition": dep_info["wait_condition"],
+            "wait_conditions": dep_info["wait_conditions"],
             "container_running": container is not None,
             "created_at": dep_info["created_at"]
         }
@@ -194,6 +201,129 @@ class DependencyManager:
         
         return sorted_services
     
+    def sort_services_by_dependencies_multi(self, services: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Sort services based on their dependencies (supports multiple dependencies).
+        
+        Args:
+            services: List of service definitions
+            
+        Returns:
+            List of services sorted in dependency order
+            
+        Raises:
+            RuntimeError: If circular dependency or missing dependency detected
+        """
+        sorted_services = []
+        remaining = services.copy()
+        deployed = set()
+        
+        # Continue until all services are sorted or dependency cycle is detected
+        while remaining:
+            # Find services that can be deployed (no unmet dependencies)
+            for i, service in enumerate(remaining):
+                deps = service.get("depends_on")
+                # Handle both single dependency (string) and multiple dependencies (list)
+                if deps:
+                    if isinstance(deps, str):
+                        deps_list = [deps]
+                    else:
+                        deps_list = deps
+                    
+                    # Check if all dependencies are deployed
+                    if all(dep in deployed for dep in deps_list):
+                        # Move service from remaining to sorted list
+                        sorted_services.append(remaining.pop(i))
+                        deployed.add(service["name"])
+                        break
+                else:
+                    # No dependencies - can be deployed
+                    sorted_services.append(remaining.pop(i))
+                    deployed.add(service["name"])
+                    break
+            else:
+                # No service can be deployed - indicates circular dependency or missing dependency
+                remaining_names = [s['name'] for s in remaining]
+                raise RuntimeError(
+                    f"Circular dependency or missing dependency in: {remaining_names}"
+                )
+        
+        return sorted_services
+    
+    def deploy_group(self, definitions: list) -> dict:
+        """
+        Deploys multiple services respecting dependencies with smart orchestration.
+        
+        Args:
+            definitions (list): List of service definitions with dependencies
+            
+        Returns:
+            dict: Deployment result with deployed services mapping
+        """
+        from .docker_client import get_docker_client_sync, pull_image_if_needed
+        
+        client = get_docker_client_sync()
+        deployed_containers = {}
+        
+        # Create a copy of definitions for dependency resolution
+        definitions_copy = []
+        for service_def in definitions:
+            service_copy = service_def.copy()
+            # Convert wait_conditions to wait_condition for the first dependency
+            if "wait_conditions" in service_copy:
+                service_copy["wait_condition"] = service_copy["wait_conditions"][0]
+            definitions_copy.append(service_copy)
+        
+        # Sort services based on dependencies (supports multiple dependencies)
+        sorted_definitions = self.sort_services_by_dependencies_multi(definitions_copy)
+        
+        # Deploy services in dependency order
+        for service_def in sorted_definitions:
+            name = service_def["name"]
+            image = service_def["image"]
+            ports = service_def.get("ports", {})
+            env_vars = service_def.get("env_vars", {})
+            
+            # Pull image if needed
+            pull_image_if_needed(client, image)
+            
+            # Deploy container
+            container = client.containers.run(
+                image=image,
+                name=name,
+                detach=True,
+                ports=ports,
+                environment=env_vars,
+            )
+            
+            # Track deployed container
+            deployed_containers[name] = container.short_id
+            
+            # Get the original service definition to check for wait conditions
+            original_service = next(s for s in definitions if s["name"] == name)
+            
+            # Wait for dependencies if defined
+            if "wait_conditions" in original_service:
+                # Handle multiple wait conditions
+                for wait_condition in original_service["wait_conditions"]:
+                    wait_success = self.wait_for_condition(wait_condition, timeout=60)
+                    if not wait_success:
+                        container.stop()
+                        container.remove()
+                        raise RuntimeError(f"Dependency not met for {name}: {wait_condition}")
+            elif "wait_condition" in original_service:
+                wait_condition = original_service["wait_condition"]
+                wait_success = self.wait_for_condition(wait_condition, timeout=60)
+                if not wait_success:
+                    container.stop()
+                    container.remove()
+                    raise RuntimeError(f"Dependency not met for {name}: {wait_condition}")
+        
+        return {
+            "deployed_services": deployed_containers,
+            "status": "all_services_running"
+        }
+    
     async def _check_tcp_port_async(self, host: str, port: int) -> bool:
         """Async version of check if TCP port is open."""
         try:
@@ -266,6 +396,7 @@ class DependencyManager:
             loop = asyncio.get_event_loop()
             
             async def check_logs():
+                from .docker_client import get_docker_client_sync
                 client = get_docker_client_sync()
                 container = await loop.run_in_executor(None, client.containers.get, container_id)
                 logs = await loop.run_in_executor(None, lambda: container.logs(tail=50).decode("utf-8", errors="replace"))
@@ -280,6 +411,7 @@ class DependencyManager:
     def _check_log_pattern(self, container_id: str, pattern: str) -> bool:
         """Check if log pattern appears in container logs."""
         try:
+            from .docker_client import get_docker_client_sync
             client = get_docker_client_sync()
             container = client.containers.get(container_id)
             logs = container.logs(tail=50).decode("utf-8", errors="replace")
