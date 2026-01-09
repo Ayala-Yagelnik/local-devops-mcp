@@ -43,7 +43,7 @@ class TestDependencyManager:
             result = self.dependency_manager.get_dependency_status("web-app")
             
             assert result["service"] == "web-app"
-            assert result["depends_on"] == "database"
+            assert result["depends_on"] == ["database"]
             assert result["container_running"] is True
     
     def test_get_dependency_status_not_defined(self):
@@ -207,7 +207,7 @@ class TestDependencyManager:
     
     def test_check_log_pattern_sync(self):
         """Test synchronous log pattern check."""
-        with patch('src.dependencies.get_docker_client_sync') as mock_get_client:
+        with patch('src.docker_client.get_docker_client_sync') as mock_get_client:
             mock_client = Mock()
             mock_container = Mock()
             mock_container.logs.return_value = b"Server is ready to accept connections"

@@ -10,7 +10,7 @@ import time
 from typing import Dict, Any, List
 
 from docker.errors import DockerException
-from docker_client import get_docker_client, get_docker_client_sync
+from src.docker_client import get_docker_client, get_docker_client_sync
 
 
 class HealthMonitor:

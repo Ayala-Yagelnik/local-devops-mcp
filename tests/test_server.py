@@ -36,7 +36,7 @@ from server import (
 class TestServerTools:
     """Test MCP server tool functions."""
     
-    @patch('server.get_docker_client_sync')
+    @patch('src.tools.container_tools.get_docker_client_sync')
     def test_list_running_services(self, mock_get_client):
         """Test listing running services."""
         mock_client = Mock()
@@ -44,13 +44,7 @@ class TestServerTools:
         mock_container.short_id = "abc123def456"
         mock_container.image.tags = ["nginx:latest"]
         mock_container.status = "running"
-        mock_container.attrs = {
-            "NetworkSettings": {
-                "Ports": {
-                    "80/tcp": [{"HostPort": "8080"}]
-                }
-            }
-        }
+        mock_container.ports = {"80/tcp": [{"HostPort": "8080"}]}
         mock_client.containers.list.return_value = [mock_container]
         mock_get_client.return_value = mock_client
         
@@ -62,8 +56,8 @@ class TestServerTools:
         assert result[0]["status"] == "running"
         assert "80/tcp" in result[0]["ports"]
     
-    @patch('server.get_docker_client_sync')
-    @patch('server.pull_image_if_needed')
+    @patch('src.tools.container_tools.get_docker_client_sync')
+    @patch('src.tools.container_tools.pull_image_if_needed')
     def test_deploy_service(self, mock_pull, mock_get_client):
         """Test deploying a service."""
         mock_client = Mock()
@@ -84,11 +78,12 @@ class TestServerTools:
         mock_client.containers.run.assert_called_once_with(
             image="nginx:latest",
             detach=True,
-            ports={"80": "8080"},
+            remove=False,
+            ports={"80/tcp": {"HostPort": "8080"}},
             environment={"NGINX_PORT": "80"}
         )
     
-    @patch('server.get_docker_client_sync')
+    @patch('src.tools.container_tools.get_docker_client_sync')
     def test_get_service_logs(self, mock_get_client):
         """Test getting service logs."""
         mock_client = Mock()
@@ -103,7 +98,7 @@ class TestServerTools:
         mock_client.containers.get.assert_called_once_with("abc123def456")
         mock_container.logs.assert_called_once_with(tail=50)
     
-    @patch('server.get_docker_client_sync')
+    @patch('src.tools.container_tools.get_docker_client_sync')
     def test_stop_service(self, mock_get_client):
         """Test stopping a service."""
         mock_client = Mock()
@@ -117,7 +112,7 @@ class TestServerTools:
         mock_container.stop.assert_called_once()
         mock_container.remove.assert_called_once()
     
-    @patch('server.dependency_manager')
+    @patch('src.tools.orchestration_tools.dependency_manager')
     def test_define_dependency(self, mock_dep_manager):
         """Test defining a dependency."""
         mock_dep_manager.define_dependency.return_value = {
@@ -139,7 +134,7 @@ class TestServerTools:
         assert result["status"] == "defined"
         mock_dep_manager.define_dependency.assert_called_once()
     
-    @patch('server.dependency_manager')
+    @patch('src.tools.orchestration_tools.dependency_manager')
     def test_get_dependency_status(self, mock_dep_manager):
         """Test getting dependency status."""
         mock_dep_manager.get_dependency_status.return_value = {
@@ -157,7 +152,7 @@ class TestServerTools:
         assert result["container_running"] is True
         mock_dep_manager.get_dependency_status.assert_called_once_with("web-app")
     
-    @patch('server.template_manager')
+    @patch('src.tools.orchestration_tools.template_manager')
     def test_create_template(self, mock_template_manager):
         """Test creating a template."""
         mock_template_manager.create_template.return_value = {
@@ -181,7 +176,7 @@ class TestServerTools:
         assert result["status"] == "created"
         mock_template_manager.create_template.assert_called_once()
     
-    @patch('server.template_manager')
+    @patch('src.tools.orchestration_tools.template_manager')
     def test_run_from_template(self, mock_template_manager):
         """Test running service from template."""
         mock_template_manager.run_from_template.return_value = {
@@ -198,7 +193,7 @@ class TestServerTools:
         assert result["status"] == "running"
         mock_template_manager.run_from_template.assert_called_once()
     
-    @patch('server.template_manager')
+    @patch('src.tools.orchestration_tools.template_manager')
     def test_list_templates(self, mock_template_manager):
         """Test listing templates."""
         mock_template_manager.list_templates.return_value = [
@@ -219,7 +214,7 @@ class TestServerTools:
         assert result[0]["image"] == "nginx:latest"
         mock_template_manager.list_templates.assert_called_once()
     
-    @patch('server.health_monitor')
+    @patch('src.tools.health_tools.health_monitor')
     def test_add_health_check(self, mock_health_monitor):
         """Test adding health check."""
         mock_health_monitor.add_health_check.return_value = {
@@ -235,7 +230,7 @@ class TestServerTools:
         assert result["status"] == "health_check_added"
         mock_health_monitor.add_health_check.assert_called_once()
     
-    @patch('server.health_monitor')
+    @patch('src.tools.health_tools.health_monitor')
     def test_get_service_health(self, mock_health_monitor):
         """Test getting service health."""
         mock_health_monitor.get_service_health.return_value = {
@@ -253,7 +248,7 @@ class TestServerTools:
         assert result["status"] == "healthy"
         mock_health_monitor.get_service_health.assert_called_once()
     
-    @patch('server.health_monitor')
+    @patch('src.tools.health_tools.health_monitor')
     def test_auto_restart_on_failure(self, mock_health_monitor):
         """Test enabling auto-restart on failure."""
         mock_health_monitor.enable_auto_restart.return_value = {
@@ -268,7 +263,7 @@ class TestServerTools:
         assert result["auto_restart"] == "enabled"
         mock_health_monitor.enable_auto_restart.assert_called_once()
     
-    @patch('server.snapshot_manager')
+    @patch('src.tools.state_tools.snapshot_manager')
     def test_snapshot_env(self, mock_snapshot_manager):
         """Test creating environment snapshot."""
         mock_snapshot_manager.snapshot_env.return_value = {
@@ -293,7 +288,7 @@ class TestServerTools:
         assert result["status"] == "created"
         mock_snapshot_manager.snapshot_env.assert_called_once()
     
-    @patch('server.snapshot_manager')
+    @patch('src.tools.state_tools.snapshot_manager')
     def test_restore_env(self, mock_snapshot_manager):
         """Test restoring environment from snapshot."""
         mock_snapshot_manager.restore_env.return_value = {
@@ -312,7 +307,7 @@ class TestServerTools:
         assert result["status"] == "restored"
         mock_snapshot_manager.restore_env.assert_called_once()
     
-    @patch('server.snapshot_manager')
+    @patch('src.tools.state_tools.snapshot_manager')
     def test_list_snapshots(self, mock_snapshot_manager):
         """Test listing snapshots."""
         mock_snapshot_manager.list_snapshots.return_value = [
@@ -331,7 +326,7 @@ class TestServerTools:
         assert result[0]["name"] == "dev-env-v1"
         mock_snapshot_manager.list_snapshots.assert_called_once()
     
-    @patch('server.file_watcher')
+    @patch('src.tools.state_tools.file_watcher')
     def test_watch_and_redeploy(self, mock_file_watcher):
         """Test watching and redeploying on file changes."""
         mock_file_watcher.watch_and_redeploy.return_value = {
@@ -347,7 +342,7 @@ class TestServerTools:
         assert result["status"] == "watching_started"
         mock_file_watcher.watch_and_redeploy.assert_called_once()
     
-    @patch('server.file_watcher')
+    @patch('src.tools.state_tools.file_watcher')
     def test_stop_watching(self, mock_file_watcher):
         """Test stopping file watching."""
         mock_file_watcher.stop_watching.return_value = {
@@ -362,7 +357,7 @@ class TestServerTools:
         assert result["status"] == "watching_stopped"
         mock_file_watcher.stop_watching.assert_called_once()
     
-    @patch('server.file_watcher')
+    @patch('src.tools.state_tools.file_watcher')
     def test_smart_rebuild(self, mock_file_watcher):
         """Test smart rebuild of service."""
         mock_file_watcher.smart_rebuild.return_value = {
